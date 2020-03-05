@@ -1,0 +1,362 @@
+---
+title: "HW_2"
+author: "Eugenia Lou"
+date: "September 9, 2019"
+output: html_document
+---
+
+HW_2a
+```{r}
+setwd("c:/data/BUAN6357/HW_2");source("prep.txt", echo=T)
+```
+
+```{r}
+library(tidyverse)
+library(data.table)
+
+train = fread("HW_2_train.csv")
+test = fread("HW_2_test.csv")
+
+train  <- as.data.table(train)
+test   <- as.data.table(test)
+```
+
+
+```{r}
+minClusters        <- 1
+maxClusters        <- 10
+seed               <- 661641
+
+set.seed(seed)
+```
+
+```{r}
+# K-means clustering
+
+kmTWSS <- rep(-1,maxClusters)
+
+for (k in minClusters:maxClusters){ 
+  set.seed(seed)
+  kmTWSS[k]  <- kmeans(train, k, nstart=5)$tot.withinss
+}
+
+plot(minClusters:maxClusters, 
+     kmTWSS,
+     type="b",
+     main="Total Within-Group SS by Number of CLusters (kmTWSS)",
+     xlab="Number of Clusters",
+     ylab="Total With-Group SS")
+
+kmTWSS
+```
+
+```{r}
+kmTWSS4 <- kmeans(train, centers = 4, nstart = 5)
+kmTWSS4
+```
+
+
+```{r}
+# Hierarchical clustering
+
+train.dist <- (dist(train, method = "euclidean")^2)
+train.hclust <- hclust(train.dist, method = "complete")
+plot(train.hclust)
+```
+
+```{r}
+set.seed(seed)
+
+wss <- function(d) {
+  sum(scale(d, center= T, scale= F)^2)
+}
+
+wrap <- function(i, hc, x) { 
+  cl <- cutree(hc, i) 
+  spl <- split(x, cl)
+  wss <- sum(sapply(spl, wss))
+  wss
+}
+
+hcTWSS <- rep(-1,maxClusters)
+
+for (i in 1:maxClusters){
+  hcTWSS[i] <- wrap(i,train.hclust,train)
+}
+
+hcTWSS
+plot(hcTWSS,
+     type="b",
+     main="Total Within-Group SS by Number of CLusters (hcTWSS)",
+     xlab="Number of Clusters",
+     ylab="Total With-Group SS")
+
+hcTWSS[4]
+
+```
+
+```{r}
+source("validate.txt", echo=T)
+```
+
+HW_2b
+
+# Question-1
+```{r}
+plot(kmTWSS)
+```
+
+# Question-2
+```{r}
+plot(hcTWSS)
+```
+
+# Question-3
+```{r}
+kmTWSS[4]
+```
+
+# Question-4
+```{r}
+hcTWSS[4]
+```
+
+# Question-5
+```{r}
+# To assign a cluster to each observation
+grp <- cutree(train.hclust, 4)
+table(grp)
+
+tbl <- table(kmean=kmTWSS4$cluster, hcluster= grp)
+tbl
+
+sum(apply(tbl,1,max))/sum(tbl)
+```
+
+# Question-6
+```{r}
+# Mahalanobis distance
+
+variability <- function(df) {
+  df$cluster <- NULL
+  n          <- nrow(df)                      # how many rows do we have
+  df2        <- scale(df, center=T, scale=T)  # convert to Z w/ local mean and std.dev
+  sscp       <- t(df2) %*% df2                # X'X
+  vcvinv     <- solve((1/(n-1)) * sscp)       # inverse of variance-covariance matrix
+  return( list(n      = n,
+               avg    = attr(df2, "scaled:center"),
+               sdev   = attr(df2, "scaled:scale"),
+               vcvinv = vcvinv )
+  )
+}
+
+# calculate and retain summary information for each existing cluster
+mhWork   <- train                       %>%
+ group_by(cluster=kmTWSS4$cluster)      %>%
+ do( desc=variability(select(., v1, v2, v3, v4, v5)))
+ 
+clusters <- mhWork$cluster
+desc     <- mhWork$desc
+
+# calculate mahalanobis distances for training set to check behavior
+# storage space for distances
+d.train  <- matrix( -1,
+                    nrow=nrow(train),
+                    ncol=length(clusters) )
+
+for ( i in seq_along(clusters) ) {
+   t            <- desc[[i]]
+   tdf          <- scale(train, 
+                         center=t$avg, 
+                         scale=t$sdev)   # scale to Z w/ orig. cluster dist
+   d.train[, i] <- mahalanobis(tdf, 
+                               center=F, 
+                               cov=t$vcvinv, 
+                               inverted=T)
+}
+
+head(d.train)
+
+# which cluster for each training observation?
+newClust2    <- apply(d.train, 1, which.min)
+head(newClust2)
+
+tbl2 <- table(kmean=kmTWSS4$cluster, mhkmean=newClust2)
+tbl2
+
+sum(apply(tbl2,1,max))/sum(tbl2)
+```
+
+# Question-7
+```{r}
+# calculate and retain summary information for each existing cluster
+mhWork   <- train              %>%
+ group_by(cluster=grp)         %>%
+ do( desc=variability(select(., v1, v2, v3, v4, v5)))
+ 
+clusters <- mhWork$cluster
+desc     <- mhWork$desc
+
+# calculate mahalanobis distances for training set to check behavior
+# storage space for distances
+d.train  <- matrix( -1,
+                    nrow=nrow(train),
+                    ncol=length(clusters) )
+
+for ( i in seq_along(clusters) ) {
+   t            <- desc[[i]]
+   tdf          <- scale(train, 
+                         center=t$avg, 
+                         scale=t$sdev)   # scale to Z w/ orig. cluster dist
+   d.train[, i] <- mahalanobis(tdf, 
+                               center=F, 
+                               cov=t$vcvinv, 
+                               inverted=T)
+}
+
+head(d.train)
+
+# which cluster for each training observation?
+newClust    <- apply(d.train, 1, which.min)
+head(newClust)
+
+train.mhdist <- dist(as.matrix(d.train))
+train.mhclust <- hclust(train.mhdist, method = "complete")
+train.mhclust4 <- cutree(train.mhclust, 4)
+
+tbl3 <- table( hcluster= grp, mhcluster= newClust)
+tbl3
+
+sum(apply(tbl3,1,max))/sum(tbl3)
+
+```
+
+# Question-8
+```{r}
+# chi-squared cdf value for each training observation
+mhDf     <- length(desc[[1]]$avg)
+
+minStat  <- apply(d.train, 1, min)
+pvalue    <- pchisq(minStat, df=mhDf, lower.tail=F)
+
+summary(pvalue)
+quantile(pvalue, probs = c(0, 0.05, 0.25, 0.5, 0.75, 0.95, 1))
+hist(pvalue)
+
+# Probability(p-value<=0.05)= ?
+alpha <- 0.05
+sum(pvalue<=alpha)/length(pvalue)
+
+```
+
+# Question-9
+```{r}
+minStat  <- apply(d.train, 1, min)
+pvalue    <- pchisq(minStat, df=mhDf, lower.tail=F)
+
+alpha <- 0.05
+sum(pvalue<=alpha)/length(pvalue)
+```
+
+# Question-10
+```{r}
+# calculate mahalanobis distances for testing set to compare behavior
+# storage space for distances
+d2       <- matrix( -1,
+                    nrow=nrow(test),
+                    ncol=length(clusters) )
+
+# collect Mahalanobis distance for test data across clusters [ updated ]
+for ( i in seq_along(clusters) ) {
+  t       <- desc[[i]]
+  tdf     <- scale(test, 
+                   center=t$avg, 
+                   scale=t$sdev)   # scale to Z w/ orig. cluster dist
+  d2[, i] <- mahalanobis(tdf, 
+                         center=F, 
+                         cov=t$vcvinv, 
+                         inverted=T)
+}
+
+# which cluster for each testing observation?
+newClust    <- apply(d2, 
+                     1, 
+                     which.min) # location of min value by row
+
+head(d2)
+head(newClust)
+
+# chi-squared cdf value for each testing observation
+minStat  <- apply(d2, 1, min)
+pvalue    <- pchisq(minStat,
+                   df=mhDf, 
+                   lower.tail=F)
+summary(pvalue)
+quantile(pvalue, probs = c(0, 0.05, 0.25, 0.5, 0.75, 0.95, 1))
+
+# distribution of p-value (tail area) by group for testing sample
+hist(pvalue)
+
+# Probability(p-value<=0.05)= ?
+alpha <- 0.05
+sum(pvalue<=alpha)/length(pvalue)
+
+```
+
+# Question-11
+```{r}
+# calculate mahalanobis distances for testing set to compare behavior
+# storage space for distances
+d2       <- matrix( -1,
+                    nrow=nrow(test),
+                    ncol=length(clusters) )
+
+# collect Mahalanobis distance for test data across clusters [ updated ]
+for ( i in seq_along(clusters) ) {
+  t       <- desc[[i]]
+  tdf     <- scale(test, 
+                   center=t$avg, 
+                   scale=t$sdev)   # scale to Z w/ orig. cluster dist
+  d2[, i] <- mahalanobis(tdf, 
+                         center=F, 
+                         cov=t$vcvinv, 
+                         inverted=T)
+}
+
+# which cluster for each testing observation?
+newClust    <- apply(d2, 
+                     1, 
+                     which.min) # location of min value by row
+
+head(d2)
+head(newClust)
+
+# chi-squared cdf value for each testing observation
+minStat  <- apply(d2, 1, min)
+pvalue    <- pchisq(minStat,
+                   df=mhDf, 
+                   lower.tail=F)
+summary(pvalue)
+quantile(pvalue, probs = c(0, 0.05, 0.25, 0.5, 0.75, 0.95, 1))
+
+# distribution of p-value (tail area) by group for testing sample
+hist(pvalue)
+
+# Probability(p-value<=0.05)= ?
+alpha <- 0.05
+sum(pvalue<=alpha)/length(pvalue)
+
+```
+
+# Question-12
+a non-uniform distribution on the interval from 0 to 1, weighted toward small values
+
+# Question-13
+a non-uniform distribution on the interval from 0 to 1, weighted toward small values
+
+# Question-14
+not continue using the existing cluster structure on new data
+
+# Question-15
+not continue using the existing cluster structure on new data
+

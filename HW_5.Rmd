@@ -1,0 +1,226 @@
+---
+title: "HW_5"
+author: "Eugenia Lou"
+date: "October 21, 2019"
+output: html_document
+---
+
+HW_5a
+```{r}
+#setwd("c:/data/BUAN6357/HW_5");source("prep.txt", echo=T)
+```
+
+```{r}
+library(tidyverse)
+library(broom)
+library(data.table)
+
+seed <- 436604030
+set.seed(seed)
+
+aq  <- as.data.table(airquality)
+```
+
+```{r}
+raw <- na.omit(aq)                    # Remove missing value
+raw <- subset(raw, select = -c(Day) ) # Delete column by column name
+                                      # drop variable "Day"
+raw$Month <- factor(raw$Month)        # Convert variable "Month" to factor
+raw
+```
+
+```{r}
+n <- nrow(raw)  # number of observations in raw
+b <- 500        # number of bootstrap iterations
+```
+
+```{r}
+# Classic bootstrap- for loop
+set.seed(seed)
+
+t     <- NULL
+g     <- NULL
+idx   <- NULL
+cl.loop <- NULL
+
+t <- as.vector(replicate(b, sample(n, replace=T), simplify=T)) 
+g <- rep(1:b, each=n)
+
+for (i in 1:b ){
+  idx     <- t[g==i] # index values for sample
+  cl.loop <- as.data.table(rbind(cl.loop, tidy(lm(Ozone~ ., data= raw[idx]))))
+}
+
+cl.loop
+```
+
+```{r}
+# Classic bootstrap- for DT
+set.seed(seed)
+
+t   <- NULL
+g   <- NULL
+dt  <- NULL
+cl.dt <- NULL
+ 
+t <- as.vector(replicate(b, sample(n, replace=T), simplify=T))
+g <- rep(1:b, each=n)
+
+dt    <- data.table(t= t, g= g)
+cl.dt <- dt[,tidy(lm(Ozone~ ., data= raw[t])), by= g]
+cl.dt
+
+#all.equal(cl.dt, cl.loop)
+```
+
+```{r}
+# Balanced bootstrap- for loop
+set.seed(seed)
+
+t   <- NULL
+g   <- NULL
+idx <- NULL
+bal.loop <- NULL
+
+t <- sample(rep(1:n, b))
+g <- rep(1:b, each=n)
+
+for (j in 1:b ){
+  idx <- t[g==j] # index values for sample
+  bal.loop <- as.data.table(rbind(bal.loop, tidy(lm(Ozone~ ., data = raw[idx]))))
+}
+
+bal.loop
+
+```
+
+```{r}
+# Balanced bootstrap- for DT
+set.seed(seed)
+
+t   <- NULL
+g   <- NULL
+dt  <- NULL
+bal.dt <- NULL
+
+t <- sample(rep(1:n, b))
+g <- rep(1:b, each=n)
+
+dt <- data.table(t= t, g= g)
+bal.dt <- dt[,tidy(lm(Ozone~ ., data = raw[t])), by= g]
+bal.dt
+
+#all.equal(bal.dt, bal.loop)
+```
+
+```{r}
+#source("validate.txt", echo=T)
+```
+
+HW_5b
+Question-1
+What is the average value for the Wind estimate as calculated using the Classic Bootstrap approach results? (3 digits minimum)
+```{r}
+wind.cl <- filter(cl.dt, term=="Wind")
+mean(wind.cl$estimate)
+```
+
+Question-2
+What is the non-parametric 95% CI lower bound for the Wind estimate calculated from the Classic Bootstrap approach results? (3 digits minimum)
+```{r}
+quantile(wind.cl$estimate, probs = 1-0.975)
+```
+
+Question-3
+What is the parametric 95% CI upper bound for the Wind estimate calculated from the Classic Bootstrap approach results? (3 digits minimum)
+```{r}
+z.value <- 1.96
+std     <- sd(wind.cl$estimate)
+
+mean(wind.cl$estimate)+z.value*std
+```
+
+Question-4
+What is the standard deviation value for the Temp estimate as calculated using the Classic Bootstrap approach results? (3 digits minimum)
+```{r}
+temp.cl <- filter(cl.dt, term=="Temp")
+sd(temp.cl$estimate)
+```
+
+Question-5
+What is the non-parametric 95% CI upper bound for the Temp estimate calculated from the Classic Bootstrap approach results? (3 digits minimum)
+```{r}
+quantile(temp.cl$estimate, probs = 0.975)
+```
+
+Question-6
+What is the parametric 95% CI lower bound for the Temp estimate calculated from the Classic Bootstrap approach results? (3 digits minimum)
+```{r}
+z.value <- 1.96
+std     <- sd(temp.cl$estimate)
+
+mean(temp.cl$estimate)-z.value*std
+```
+
+Question-7
+What is the proportion of p.values less than alpha=0.05 for the Wind estimate when using the Classic Bootstrap approach results? (0<=X<=1, 3 digits minimum)
+```{r}
+# Probability(p-value<=0.05)= ?
+alpha <- 0.05
+sum(wind.cl$p.value<=alpha)/length(wind.cl$p.value)
+```
+
+Question-8
+What is the standard deviation value for the Wind estimate as calculated using the Balanced Bootstrap approach results? (3 digits minimum)
+```{r}
+wind.bal <- filter(bal.dt, term=="Wind")
+sd(wind.bal$estimate)
+```
+
+Question-9
+What is the non-parametric 95% CI upper bound for the Wind estimate calculated from the Balanced Bootstrap approach results? (3 digits minimum)
+```{r}
+quantile(wind.bal$estimate, probs = 0.975)
+```
+
+Question-10
+What is the parametric 95% CI lower bound for the Wind estimate calculated from the Balanced Bootstrap approach results? (3 digits minimum)
+```{r}
+z.value <- 1.96
+std     <- sd(wind.bal$estimate)
+
+mean(wind.bal$estimate)-z.value*std
+```
+
+Question-11
+What is the average value for the Temp estimate as calculated using the Balanced Bootstrap approach results? (3 digits minimum)
+```{r}
+temp.bal <- filter(bal.dt, term=="Temp")
+mean(temp.bal$estimate)
+```
+
+Question-12
+What is the non-parametric 95% CI lower bound for the Temp estimate calculated from the Balanced Bootstrap approach results? (3 digits minimum)
+```{r}
+quantile(temp.bal$estimate, probs = 1-0.975)
+```
+
+Question-13
+What is the parametric 95% CI upper bound for the Temp estimate calculated from the Balanced Bootstrap approach results? (3 digits minimum)
+```{r}
+z.value <- 1.96
+std     <- sd(temp.bal$estimate)
+
+mean(temp.bal$estimate)+z.value*std
+```
+
+Question-14
+What is the proportion of p.values less than alpha=0.05 for the Temp estimate when using the Balanced Bootstrap approach results? (0<=X<=1, 3 digits minimum)
+```{r}
+# Probability(p-value<=0.05)= ?
+alpha <- 0.05
+sum(temp.bal$p.value<=alpha)/length(temp.bal$p.value)
+```
+
+
+

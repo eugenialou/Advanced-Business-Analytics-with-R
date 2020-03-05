@@ -1,0 +1,255 @@
+---
+title: "HW_4"
+author: "Eugenia Lou"
+date: "October 20, 2019"
+output: html_document
+---
+
+HW_4a
+```{r}
+#setwd("c:/data/BUAN6357/HW_4");source("prep.txt", echo=T)
+```
+
+```{r}
+library(tidyverse)
+library(data.table)
+
+# Delivery 1. seed: (vector) random number generator seed
+seed <- 436604030
+set.seed(seed)
+
+aq  <- as.data.table(airquality)
+```
+
+```{r}
+colnames(aq)
+```
+
+```{r}
+head(aq)
+```
+
+```{r}
+colSums(is.na(aq))
+```
+
+```{r}
+raw <- na.omit(aq)                    # Remove missing value
+raw <- subset(raw, select = -c(Day) ) # Delete column by column name
+                                      # drop variable "Day"
+raw$Month <- factor(raw$Month)        # Convert variable "Month" to factor
+
+# Delivery 2. raw: (data.table) see Notes
+raw
+```
+
+```{r}
+# Delivery 3. base.model: (lm) non-CV OLS model using raw (all observations)
+base.model <- lm(Ozone ~ ., data=raw)
+summary(base.model)
+```
+
+```{r}
+n <- nrow(raw)
+m <- ceiling(0.1*nrow(raw))
+
+# Delivery 4. tst: (vector) 10% validation set index values
+tst   <- sample(n, m)
+train <- raw[-tst, ]
+test  <- raw[tst, ]
+```
+
+```{r}
+# Delivery 5. cv.model: (lm) OLS model using simple CV
+cv.model <- lm(Ozone ~ ., data=train)
+summary(cv.model)
+```
+
+```{r}
+# Delivery 6. cv.fitted: (vector) tst fitted values from cv.model; see Notes
+cv.fitted <- predict.lm(cv.model,raw)[tst]
+cv.fitted
+```
+
+```{r}
+cv.resid <- NULL
+num <- length(cv.fitted)
+
+cv.resid$loc <- tst
+cv.resid$diff <- test$Ozone-cv.fitted # residuals = actual - predicted
+cv.resid <- as.data.table(cv.resid)
+
+# Delivery 7. cv.resid (data.table) tst residuals from simple CV; see Notes
+cv.resid
+```
+
+```{r}
+# LOOCV (Leave one out cross validation)
+loocv <- function(train.set, model){
+  
+  set.seed(seed)
+  
+  n  <- nrow(train.set)
+  t  <- 1:n
+  idx  <- sample(t, length(t))
+
+  folds <- cut(seq(1, n), breaks=n ,labels=FALSE)
+  
+  loocv.predicted <- c()
+  for(i in idx){
+    #Segement the data by fold using the which() function 
+    testIndexes <- which(folds==i, arr.ind=TRUE)
+    testData    <- train.set[testIndexes, ]
+    trainData   <- train.set[-testIndexes, ]
+    
+    lm.model  <- lm(model, trainData)
+    predicted <- predict(lm.model, testData)
+    loocv.predicted[i] <- predicted
+    }
+  
+  return(loocv.predicted)
+}
+
+jk.resid <- NULL
+n        <- nrow(raw)
+
+loocv.predicted  <- loocv(raw, Ozone ~ .)
+
+jk.resid$loc  <- 1:n
+jk.resid$diff <- raw$Ozone-loocv.predicted # residuals = actual - predicted
+jk.resid      <- as.data.table(jk.resid)
+
+# Delivery 8. jk.resid: (data.table) validation residuals from LOOCV; see Notes
+jk.resid
+```
+
+```{r}
+# K-fold cross validation
+n  <- nrow(raw)
+k  <- 10
+t <- rep( 1:k, each=ceiling(n/k) )
+t <- t[1:n]
+
+set.seed(seed)
+
+idx  <- sample(n)
+t2 <- data.frame(t,idx)
+
+kf.resid <- data.table(k= 1:nrow(raw),loc=1:nrow(raw), diff=1:nrow(raw))
+kf.resid$k <-t
+
+tmp <- rep(0,ceiling(n/k))
+
+kfold <- function(x) {
+  tmp <- c()
+  for (i in 1:x){
+    kf.model<- lm(Ozone ~ ., data =raw[t2[t!=i,]$idx,] )
+    kf.resid <- raw$Ozone[t2[t==i,]$idx] - predict(kf.model,raw)[t2[t==i,]$idx]
+    tmp <- c(tmp,kf.resid)
+  }
+  return(tmp)
+}
+
+kf.resid$diff <-kfold(10)
+kf.resid$k <- t2$t
+kf.resid$loc <- t2$idx
+kf.resid
+
+```
+
+```{r}
+#source("validate.txt", echo=T)
+```
+
+
+HW_4b
+Question-1
+What is the average residual reported from the baseline model? (3 decimal places minimum)
+```{r}
+base.resid <- residuals(base.model)
+summary(base.resid)
+mean(base.resid)
+```
+
+Question-2
+What is the parametric estimate of the lower bound for the 95% CI of the residuals reported from the baseline model? (3 decimal places minimum)
+```{r}
+# CI= [ xbar - z*std, xbar + z*std ]
+
+z.value <- 1.96
+std     <- sd(base.resid)
+
+mean(base.resid)-z.value*std
+```
+
+Question-3
+What is the non-parametric estimate of the upper bound for the 95% CI of the residuals reported from the baseline model? (3 decimal places minimum)
+```{r}
+# We do not assume distribution on non-parameter
+quantile(base.resid, probs = 0.975)
+```
+
+Question-4
+What is the average residual reported from the simple cross-validation model? (3 decimal places minimum)
+```{r}
+mean(cv.resid$diff)
+```
+
+Question-5
+What is the parametric estimate of the lower bound for the 95% CI of the residuals reported from the simple cross-validation model? (3 decimal places minimum)
+```{r}
+z.value <- 1.96
+std     <- sd(cv.resid$diff)
+
+mean(cv.resid$diff)-z.value*std
+```
+
+Question-6
+What is the non-parametric estimate of the upper bound for the 95% CI of the residuals reported from the simple cross-validation model? (3 decimal places minimum)
+```{r}
+quantile(cv.resid$diff, probs = 0.975)
+```
+
+Question-7
+What is the average residual reported from the LOOCV cross-validation model? (3 decimal places minimum)
+```{r}
+mean(jk.resid$diff)
+```
+
+Question-8
+What is the parametric estimate of the lower bound for the 95% CI of the residuals reported from the LOOCV cross-validation model? (3 decimal places minimum)
+```{r}
+z.value <- 1.96
+std     <- sd(jk.resid$diff)
+
+mean(jk.resid$diff)-z.value*std
+```
+
+Question-9
+What is the non-parametric estimate of the upper bound for the 95% CI of the residuals reported from the LOOCV cross-validation model? (3 decimal places minimum)
+```{r}
+quantile(jk.resid$diff, probs = 0.975)
+```
+
+Question-10
+What is the average residual reported from the K-fold (k=10) cross-validation model? (3 decimal places minimum)
+```{r}
+mean(kf.resid$diff)
+```
+
+Question-11
+What is the parametric estimate of the lower bound for the 95% CI of the residuals reported from the K-fold (k=10) cross-validation model? (3 decimal places minimum)
+```{r}
+z.value <- 1.96
+std     <- sd(kf.resid$diff)
+
+mean(kf.resid$diff)-z.value*std
+```
+
+Question-12
+What is the non-parametric estimate of the upper bound for the 95% CI of the residuals reported from the K-fold (k=10) cross-validation model? (3 decimal places minimum)
+```{r}
+quantile(kf.resid$diff, probs = 0.975)
+```
+
+

@@ -1,0 +1,1129 @@
+---
+title: "HW_3"
+author: "Eugenia Lou"
+date: "September 22, 2019"
+output: html_document
+---
+
+HW_3a
+```{r}
+setwd("c:/data/BUAN6357/HW_3"); source("prep.txt", echo=T)
+```
+
+```{r}
+library(partykit)
+library(data.table)
+library(tidyverse)
+library(broom)
+```
+
+```{r}
+# constants
+cols      <- 7
+byRows    <- 1
+byCols    <- 2
+seed      <- 211754294
+
+## parameters
+p         <- 0.9   # probability a segment works correctly
+
+# flags
+debug     <- T
+plots     <- T
+verbose   <- F
+demo3     <- T
+
+# to help reading of code
+classes   <- c(0,1,2,3,4,5,6,7,8,9)
+minDigit  <- min(classes)
+maxDigit  <- max(classes)
+numDigits <- length(classes)
+
+```
+
+HW_3a
+```{r}
+n <- c(25,50)
+
+for (j in n){
+  set.seed(seed)
+  
+  t1 <- rep(classes, j)
+  t2 <- c(1,1,1,0,1,1,1,
+          0,0,1,0,0,1,0,
+          1,0,1,1,1,0,1,
+          1,0,1,1,0,1,1,
+          0,1,1,1,0,1,0,
+          1,1,0,1,0,1,1,
+          0,1,0,1,1,1,1,
+          1,0,1,0,0,1,0,
+          1,1,1,1,1,1,1,
+          1,1,1,1,0,1,0)
+  t3 <- rep(t2, j)
+  t4 <- rbinom(length(t3), 1, 1-p)
+  t5 <- ifelse(t4 == 1, 1-t3, t3)
+  t5                  <- matrix(data=t5, 
+                                nrow=length(classes)*j, 
+                                ncol=cols, 
+                                byrow=T)
+  dim(t1)             <- c(length(t1), 1)
+  t6                  <- cbind(t1, t5)
+  simDigits           <- as.data.frame(t6)
+  
+  colnames(simDigits) <- c("digit", "s1", "s2", "s3", "s4", "s5", "s6", "s7")
+  
+  simDigits <- as.data.table(simDigits)
+  
+  # 10x logit
+  td <- simDigits[1:(j*10)]
+  
+  fitted.logit  <- matrix(rep(NA,nrow(td)*numDigits), nrow=nrow(td) )
+  digits        <- td$digit
+  td$digit      <- NULL
+  for ( i in 1:length(classes) ) {
+    d                 <- classes[i]
+    td$y              <- 0         # initialize
+    td$y[digits == d] <- 1         # indicator for -each- digit
+    m                 <- glm(y ~ ., data=td, family=binomial())
+    fitted.logit[,i]  <- m$fitted.values
+  }
+  
+  index       <- apply(fitted.logit, byRows, which.max)   # location
+  class.logit <- classes[index]
+  scale.logit <- apply(fitted.logit, byRows, sum)    # scale for normalization
+  p.logit     <- apply(fitted.logit, byRows, max)/ scale.logit  # only normalize max
+  risk.logit  <- 1-p.logit          # Bayes Risk
+ 
+  # 10x tree: each v. other
+  fitted.tree10 <- matrix(rep(NA,nrow(td)*numDigits), 
+                          nrow=nrow(td) )
+  
+  for ( i in 1:length(classes) ) {
+    d                  <- classes[i]
+    td$y               <- 0         # initialize
+    td$y[digits == d]  <- 1         # indicator for -each- digit
+    m                  <- ctree(y ~ ., data=td)
+    fitted.tree10[,i]  <- predict(m)
+  }
+  
+  td$y         <- NULL
+  
+  index        <- apply(fitted.tree10, byRows, which.max)    # location
+  class.tree10 <- classes[index]
+  scale.tree10 <- apply(fitted.tree10, byRows, sum) # for normalization 
+  p.tree10     <- apply(fitted.tree10, byRows, max)/ scale.tree10  # normalize max value
+  risk.tree10  <- 1-p.tree10          # Bayes Risk
+  
+  # 1 tree: multinomial
+  td$fDigits    <- as.factor(digits)  # triggers classification
+  
+  m             <- ctree(fDigits~., data=td)
+
+  fitted.tree1  <- predict(m)
+  
+  p.tree1       <- predict(m,type="prob")  # individual class probabilities 
+  index         <- apply(p.tree1, byRows, which.max)
+  mbr.tree1     <- classes[index]
+  risk.tree1    <- 1-apply(p.tree1, byRows, max)
+  
+  
+  if (j==25){
+    logitClassif25 <- class.logit
+    logitBR25 <- risk.logit
+    tree10Classif25 <- class.tree10
+    tree1Classif25 <- mbr.tree1
+    tree10BR25 <- risk.tree10
+    tree1BR25 <- risk.tree1
+  }
+
+  if (j==50){
+    logitClassif50 <- class.logit
+    logitBR50 <- risk.logit
+    tree10Classif50 <- class.tree10
+    tree1Classif50 <- mbr.tree1
+    tree10BR50 <- risk.tree10
+    tree1BR50 <- risk.tree1
+  }
+  
+}
+  print(head(logitClassif25))
+  print(head(logitClassif50))
+  print(head(tree10Classif25))
+  print(head(tree10Classif50))
+  print(head(tree1Classif25))
+  print(head(tree1Classif50))
+  print(head(logitBR25))
+  print(head(logitBR50))
+  print(head(tree10BR25))
+  print(head(tree10BR50))
+  print(head(tree1BR25))
+  print(head(tree1BR50))
+```
+
+
+HW_3b
+# Question-1
+Based on Percent Correct using the multiple Logits approach, what is the optimal sample size stopping point? (Repetitions per digit)
+```{r}
+n <- c( 25, 50, 100, 250, 500, 1000, 2500, 5000 )
+
+pc.logit.all <- NULL
+for (j in n){
+  set.seed(seed)
+  
+  t1 <- rep(classes, j)
+  t2 <- c(1,1,1,0,1,1,1,
+          0,0,1,0,0,1,0,
+          1,0,1,1,1,0,1,
+          1,0,1,1,0,1,1,
+          0,1,1,1,0,1,0,
+          1,1,0,1,0,1,1,
+          0,1,0,1,1,1,1,
+          1,0,1,0,0,1,0,
+          1,1,1,1,1,1,1,
+          1,1,1,1,0,1,0)
+  t3 <- rep(t2, j)
+  t4 <- rbinom(length(t3), 1, 1-p)
+  t5 <- ifelse(t4 == 1, 1-t3, t3)
+  t5                  <- matrix(data=t5, 
+                                nrow=length(classes)*j, 
+                                ncol=cols, 
+                                byrow=T)
+  dim(t1)             <- c(length(t1), 1)
+  t6                  <- cbind(t1, t5)
+  simDigits           <- as.data.frame(t6)
+  
+  colnames(simDigits) <- c("digit", "s1", "s2", "s3", "s4", "s5", "s6", "s7")
+  
+  simDigits <- as.data.table(simDigits)
+  
+  # 10x logit
+  td <- simDigits[1:(j*10)]
+  
+  fitted.logit  <- matrix(rep(NA,nrow(td)*numDigits), nrow=nrow(td) )
+  digits        <- td$digit
+  td$digit      <- NULL
+  for ( i in 1:length(classes) ) {
+    d                 <- classes[i]
+    td$y              <- 0         # initialize
+    td$y[digits == d] <- 1         # indicator for -each- digit
+    m                 <- glm(y ~ ., data=td, family=binomial())
+    fitted.logit[,i]  <- m$fitted.values
+  }
+  
+  index       <- apply(fitted.logit, byRows, which.max)         # location
+  class.logit <- classes[index]
+  scale.logit <- apply(fitted.logit, byRows, sum)               # scale for normalization
+  p.logit     <- apply(fitted.logit, byRows, max)/ scale.logit  # only normalize max
+  risk.logit  <- 1-p.logit          # Bayes Risk
+  
+  (hits.logit <- table(class.logit, digits, dnn=c("classif","actual") ) )
+  (pc.logit   <- sum(diag(hits.logit))/sum(hits.logit))         # percent correct  
+  
+  pc.logit.all <- append(pc.logit.all, pc.logit)
+}
+  plot(n,pc.logit.all)
+  print(paste(n,pc.logit.all))
+
+```
+
+# Question-2
+What is the Bayes Risk when using the Multinomial Tree model fit to the n=500 scenario and the outcome (classification) is "2"? (3 decimal places)
+```{r}
+n <- c(250)
+
+for (j in n){
+  set.seed(seed)
+  
+  t1 <- rep(classes, j)
+  t2 <- c(1,1,1,0,1,1,1,
+          0,0,1,0,0,1,0,
+          1,0,1,1,1,0,1,
+          1,0,1,1,0,1,1,
+          0,1,1,1,0,1,0,
+          1,1,0,1,0,1,1,
+          0,1,0,1,1,1,1,
+          1,0,1,0,0,1,0,
+          1,1,1,1,1,1,1,
+          1,1,1,1,0,1,0)
+  t3 <- rep(t2, j)
+  t4 <- rbinom(length(t3), 1, 1-p)
+  t5 <- ifelse(t4 == 1, 1-t3, t3)
+  t5                  <- matrix(data=t5, 
+                                nrow=length(classes)*j, 
+                                ncol=cols, 
+                                byrow=T)
+  dim(t1)             <- c(length(t1), 1)
+  t6                  <- cbind(t1, t5)
+  simDigits           <- as.data.frame(t6)
+  
+  colnames(simDigits) <- c("digit", "s1", "s2", "s3", "s4", "s5", "s6", "s7")
+  
+  simDigits <- as.data.table(simDigits)
+  
+  # 10x logit
+  td <- simDigits[1:(j*10)]
+  
+  fitted.logit  <- matrix(rep(NA,nrow(td)*numDigits), nrow=nrow(td) )
+  digits        <- td$digit
+  td$digit      <- NULL
+  for ( i in 1:length(classes) ) {
+    d                 <- classes[i]
+    td$y              <- 0         # initialize
+    td$y[digits == d] <- 1         # indicator for -each- digit
+    m                 <- glm(y ~ ., data=td, family=binomial())
+    fitted.logit[,i]  <- m$fitted.values
+  }
+  
+  index       <- apply(fitted.logit, byRows, which.max)   # location
+  class.logit <- classes[index]
+  scale.logit <- apply(fitted.logit, byRows, sum)    # scale for normalization
+  p.logit     <- apply(fitted.logit, byRows, max)/ scale.logit  # only normalize max
+  risk.logit  <- 1-p.logit          # Bayes Risk
+  
+  (hits.logit <- table(class.logit, digits, dnn=c("classif","actual") ) )
+  (pc.logit   <- sum(diag(hits.logit))/sum(hits.logit)) # percent correct
+
+  
+  # 10x tree: each v. other
+  fitted.tree10 <- matrix(rep(NA,nrow(td)*numDigits), 
+                          nrow=nrow(td) )
+  
+  for ( i in 1:length(classes) ) {
+    d                  <- classes[i]
+    td$y               <- 0         # initialize
+    td$y[digits == d]  <- 1         # indicator for -each- digit
+    m                  <- ctree(y ~ ., data=td)
+    fitted.tree10[,i]  <- predict(m)
+  }
+  
+  td$y         <- NULL
+  
+  index        <- apply(fitted.tree10, byRows, which.max)    # location
+  class.tree10 <- classes[index]
+  scale.tree10 <- apply(fitted.tree10, byRows, sum) # for normalization 
+  p.tree10     <- apply(fitted.tree10, byRows, max)/ scale.tree10  # normalize max value
+  risk.tree10  <- 1-p.tree10          # Bayes Risk
+  
+  (hits.tree10 <- table(class.tree10, digits, dnn=c("classif","actual") ) )
+  (pc.tree10   <- sum(diag(hits.tree10))/sum(hits.tree10)) # percent correct
+  
+  # 1 tree: multinomial
+  td$fDigits    <- as.factor(digits)  # triggers classification
+  
+  m             <- ctree(fDigits~., data=td)
+
+  fitted.tree1  <- predict(m)
+  
+  p.tree1       <- predict(m,type="prob")  # individual class probabilities 
+  index         <- apply(p.tree1, byRows, which.max)
+  mbr.tree1     <- classes[index]
+  risk.tree1    <- 1-apply(p.tree1, byRows, max)
+  
+  (hits.tree1   <- table(fitted.tree1, digits, dnn=c("classif","actual") ) )
+  (pc.tree1     <- sum(diag(hits.tree1))/sum(hits.tree1)) # percent correct
+  
+  br.tree1.actualclass <- rep(-1,length(classes))  
+  for (i in 1:length(classes)) {
+    br.tree1.actualclass[i] <- 1-(sum(apply(hits.tree1,1,max)[i])/sum(apply(hits.tree1, 2, sum)[i]))
+  }
+  print(paste("class",0:9,":",br.tree1.actualclass,sep = ""))
+}
+```
+
+# Question-3
+What is the Bayes Risk when classifying the pattern generated from an actual value of 3 using the Logits models fit to the n=5000 scenario? (3 decimal places)
+```{r}
+n <- c(5000)
+
+for (j in n){
+  set.seed(seed)
+  
+  t1 <- rep(classes, j)
+  t2 <- c(1,1,1,0,1,1,1,
+          0,0,1,0,0,1,0,
+          1,0,1,1,1,0,1,
+          1,0,1,1,0,1,1,
+          0,1,1,1,0,1,0,
+          1,1,0,1,0,1,1,
+          0,1,0,1,1,1,1,
+          1,0,1,0,0,1,0,
+          1,1,1,1,1,1,1,
+          1,1,1,1,0,1,0)
+  t3 <- rep(t2, j)
+  t4 <- rbinom(length(t3), 1, 1-p)
+  t5 <- ifelse(t4 == 1, 1-t3, t3)
+  t5                  <- matrix(data=t5, 
+                                nrow=length(classes)*j, 
+                                ncol=cols, 
+                                byrow=T)
+  dim(t1)             <- c(length(t1), 1)
+  t6                  <- cbind(t1, t5)
+  simDigits           <- as.data.frame(t6)
+  
+  colnames(simDigits) <- c("digit", "s1", "s2", "s3", "s4", "s5", "s6", "s7")
+  
+  simDigits <- as.data.table(simDigits)
+  
+  # 10x logit
+  td <- simDigits[1:(j*10)]
+  
+  fitted.logit  <- matrix(rep(NA,nrow(td)*numDigits), nrow=nrow(td) )
+  digits        <- td$digit
+  td$digit      <- NULL
+  for ( i in 1:length(classes) ) {
+    d                 <- classes[i]
+    td$y              <- 0         # initialize
+    td$y[digits == d] <- 1         # indicator for -each- digit
+    m                 <- glm(y ~ ., data=td, family=binomial())
+    fitted.logit[,i]  <- m$fitted.values
+  }
+  
+  index       <- apply(fitted.logit, byRows, which.max)   # location
+  class.logit <- classes[index]
+  scale.logit <- apply(fitted.logit, byRows, sum)    # scale for normalization
+  p.logit     <- apply(fitted.logit, byRows, max)/ scale.logit  # only normalize max
+  risk.logit  <- 1-p.logit          # Bayes Risk
+  
+  (hits.logit <- table(class.logit, digits, dnn=c("classif","actual") ) )
+  (pc.logit   <- sum(diag(hits.logit))/sum(hits.logit)) # percent correct
+  
+  br.logit.actualclass <- rep(-1,length(classes))
+  for (i in 1:length(classes)) {
+    br.logit.actualclass[i] <- 1-(sum(apply(hits.logit,1,max)[i])/sum(apply(hits.logit, 2, sum)[i]))
+  }
+  print(paste("class",0:9,":",br.logit.actualclass,sep = ""))
+}
+```
+
+# Question-4
+What is the Bayes Risk when using the Logit models fit to the n=500 scenario and the outcome (classification) is "6"? (3 decimal places)
+```{r}
+n <- c(500)
+
+for (j in n){
+  set.seed(seed)
+  
+  t1 <- rep(classes, j)
+  t2 <- c(1,1,1,0,1,1,1,
+          0,0,1,0,0,1,0,
+          1,0,1,1,1,0,1,
+          1,0,1,1,0,1,1,
+          0,1,1,1,0,1,0,
+          1,1,0,1,0,1,1,
+          0,1,0,1,1,1,1,
+          1,0,1,0,0,1,0,
+          1,1,1,1,1,1,1,
+          1,1,1,1,0,1,0)
+  t3 <- rep(t2, j)
+  t4 <- rbinom(length(t3), 1, 1-p)
+  t5 <- ifelse(t4 == 1, 1-t3, t3)
+  t5                  <- matrix(data=t5, 
+                                nrow=length(classes)*j, 
+                                ncol=cols, 
+                                byrow=T)
+  dim(t1)             <- c(length(t1), 1)
+  t6                  <- cbind(t1, t5)
+  simDigits           <- as.data.frame(t6)
+  
+  colnames(simDigits) <- c("digit", "s1", "s2", "s3", "s4", "s5", "s6", "s7")
+  
+  simDigits <- as.data.table(simDigits)
+  
+  # 10x logit
+  td <- simDigits[1:(j*10)]
+  
+  fitted.logit  <- matrix(rep(NA,nrow(td)*numDigits), nrow=nrow(td) )
+  digits        <- td$digit
+  td$digit      <- NULL
+  for ( i in 1:length(classes) ) {
+    d                 <- classes[i]
+    td$y              <- 0         # initialize
+    td$y[digits == d] <- 1         # indicator for -each- digit
+    m                 <- glm(y ~ ., data=td, family=binomial())
+    fitted.logit[,i]  <- m$fitted.values
+  }
+  
+  index       <- apply(fitted.logit, byRows, which.max)   # location
+  class.logit <- classes[index]
+  scale.logit <- apply(fitted.logit, byRows, sum)    # scale for normalization
+  p.logit     <- apply(fitted.logit, byRows, max)/ scale.logit  # only normalize max
+  risk.logit  <- 1-p.logit          # Bayes Risk
+  
+  (hits.logit <- table(class.logit, digits, dnn=c("classif","actual") ) )
+  (pc.logit   <- sum(diag(hits.logit))/sum(hits.logit)) # percent correct
+  
+  br.logit.classif <- rep(-1,length(classes))
+  for (i in 1:length(classes)) {
+    br.logit.classif[i] <- 1-(sum(apply(hits.logit,1,max)[i])/sum(apply(hits.logit, 1, sum)[i]))
+  }
+  print(paste("class",0:9,":",br.logit.classif,sep = ""))
+}
+```
+
+# Question-5
+What is the Bayes Risk when using the Multinomial Tree model fit to the n=500 scenario and the outcome (classification) is "2"? (3 decimal places)
+```{r}
+n <- c(500)
+
+for (j in n){
+  set.seed(seed)
+  
+  t1 <- rep(classes, j)
+  t2 <- c(1,1,1,0,1,1,1,
+          0,0,1,0,0,1,0,
+          1,0,1,1,1,0,1,
+          1,0,1,1,0,1,1,
+          0,1,1,1,0,1,0,
+          1,1,0,1,0,1,1,
+          0,1,0,1,1,1,1,
+          1,0,1,0,0,1,0,
+          1,1,1,1,1,1,1,
+          1,1,1,1,0,1,0)
+  t3 <- rep(t2, j)
+  t4 <- rbinom(length(t3), 1, 1-p)
+  t5 <- ifelse(t4 == 1, 1-t3, t3)
+  t5                  <- matrix(data=t5, 
+                                nrow=length(classes)*j, 
+                                ncol=cols, 
+                                byrow=T)
+  dim(t1)             <- c(length(t1), 1)
+  t6                  <- cbind(t1, t5)
+  simDigits           <- as.data.frame(t6)
+  
+  colnames(simDigits) <- c("digit", "s1", "s2", "s3", "s4", "s5", "s6", "s7")
+  
+  simDigits <- as.data.table(simDigits)
+  
+  # 10x logit
+  td <- simDigits[1:(j*10)]
+  
+  fitted.logit  <- matrix(rep(NA,nrow(td)*numDigits), nrow=nrow(td) )
+  digits        <- td$digit
+  td$digit      <- NULL
+  for ( i in 1:length(classes) ) {
+    d                 <- classes[i]
+    td$y              <- 0         # initialize
+    td$y[digits == d] <- 1         # indicator for -each- digit
+    m                 <- glm(y ~ ., data=td, family=binomial())
+    fitted.logit[,i]  <- m$fitted.values
+  }
+  
+  index       <- apply(fitted.logit, byRows, which.max)   # location
+  class.logit <- classes[index]
+  scale.logit <- apply(fitted.logit, byRows, sum)    # scale for normalization
+  p.logit     <- apply(fitted.logit, byRows, max)/ scale.logit  # only normalize max
+  risk.logit  <- 1-p.logit          # Bayes Risk
+  
+  (hits.logit <- table(class.logit, digits, dnn=c("classif","actual") ) )
+  (pc.logit   <- sum(diag(hits.logit))/sum(hits.logit)) # percent correct
+
+  
+  # 10x tree: each v. other
+  fitted.tree10 <- matrix(rep(NA,nrow(td)*numDigits), 
+                          nrow=nrow(td) )
+  
+  for ( i in 1:length(classes) ) {
+    d                  <- classes[i]
+    td$y               <- 0         # initialize
+    td$y[digits == d]  <- 1         # indicator for -each- digit
+    m                  <- ctree(y ~ ., data=td)
+    fitted.tree10[,i]  <- predict(m)
+  }
+  
+  td$y         <- NULL
+  
+  index        <- apply(fitted.tree10, byRows, which.max)    # location
+  class.tree10 <- classes[index]
+  scale.tree10 <- apply(fitted.tree10, byRows, sum) # for normalization 
+  p.tree10     <- apply(fitted.tree10, byRows, max)/ scale.tree10  # normalize max value
+  risk.tree10  <- 1-p.tree10          # Bayes Risk
+  
+  (hits.tree10 <- table(class.tree10, digits, dnn=c("classif","actual") ) )
+  (pc.tree10   <- sum(diag(hits.tree10))/sum(hits.tree10)) # percent correct
+  
+  # 1 tree: multinomial
+  td$fDigits    <- as.factor(digits)  # triggers classification
+  
+  m             <- ctree(fDigits~., data=td)
+
+  fitted.tree1  <- predict(m)
+  
+  p.tree1       <- predict(m,type="prob")  # individual class probabilities 
+  index         <- apply(p.tree1, byRows, which.max)
+  mbr.tree1     <- classes[index]
+  risk.tree1    <- 1-apply(p.tree1, byRows, max)
+  
+  (hits.tree1   <- table(fitted.tree1, digits, dnn=c("classif","actual") ) )
+  (pc.tree1     <- sum(diag(hits.tree1))/sum(hits.tree1)) # percent correct
+  
+  br.tree1.classif <- rep(-1,length(classes))  
+  for (i in 1:length(classes)) {
+    br.tree1.classif[i] <- 1-(sum(apply(hits.tree1,1,max)[i])/sum(apply(hits.tree1, 1, sum)[i]))
+  }
+  print(paste("class",0:9,":",br.tree1.classif,sep = ""))
+}
+```
+
+# Question-6
+What is the estimated lower bound for the Bayes Risk with an actual value of "0" across all the different sample sizes and model approaches? (3 decimal places)
+```{r}
+n <- c( 25, 50, 100, 250, 500, 1000, 2500, 5000 )
+br.logit <- NULL
+br.tree10 <- NULL
+br.tree1 <- NULL
+
+for (j in n){
+  set.seed(seed)
+  
+  t1 <- rep(classes, j)
+  t2 <- c(1,1,1,0,1,1,1,
+          0,0,1,0,0,1,0,
+          1,0,1,1,1,0,1,
+          1,0,1,1,0,1,1,
+          0,1,1,1,0,1,0,
+          1,1,0,1,0,1,1,
+          0,1,0,1,1,1,1,
+          1,0,1,0,0,1,0,
+          1,1,1,1,1,1,1,
+          1,1,1,1,0,1,0)
+  t3 <- rep(t2, j)
+  t4 <- rbinom(length(t3), 1, 1-p)
+  t5 <- ifelse(t4 == 1, 1-t3, t3)
+  t5                  <- matrix(data=t5, 
+                                nrow=length(classes)*j, 
+                                ncol=cols, 
+                                byrow=T)
+  dim(t1)             <- c(length(t1), 1)
+  t6                  <- cbind(t1, t5)
+  simDigits           <- as.data.frame(t6)
+  
+  colnames(simDigits) <- c("digit", "s1", "s2", "s3", "s4", "s5", "s6", "s7")
+  
+  simDigits <- as.data.table(simDigits)
+  
+  # 10x logit
+  td <- simDigits[1:(j*10)]
+  
+  fitted.logit  <- matrix(rep(NA,nrow(td)*numDigits), nrow=nrow(td) )
+  digits        <- td$digit
+  td$digit      <- NULL
+  for ( i in 1:length(classes) ) {
+    d                 <- classes[i]
+    td$y              <- 0         # initialize
+    td$y[digits == d] <- 1         # indicator for -each- digit
+    m                 <- glm(y ~ ., data=td, family=binomial())
+    fitted.logit[,i]  <- m$fitted.values
+  }
+  
+  index       <- apply(fitted.logit, byRows, which.max)   # location
+  class.logit <- classes[index]
+  scale.logit <- apply(fitted.logit, byRows, sum)    # scale for normalization
+  p.logit     <- apply(fitted.logit, byRows, max)/ scale.logit  # only normalize max
+  risk.logit  <- 1-p.logit          # Bayes Risk
+  
+  (hits.logit <- table(class.logit, digits, dnn=c("classif","actual") ) )
+  (pc.logit   <- sum(diag(hits.logit))/sum(hits.logit)) # percent correct
+
+  
+  # 10x tree: each v. other
+  fitted.tree10 <- matrix(rep(NA,nrow(td)*numDigits), 
+                          nrow=nrow(td) )
+  
+  for ( i in 1:length(classes) ) {
+    d                  <- classes[i]
+    td$y               <- 0         # initialize
+    td$y[digits == d]  <- 1         # indicator for -each- digit
+    m                  <- ctree(y ~ ., data=td)
+    fitted.tree10[,i]  <- predict(m)
+  }
+  
+  td$y         <- NULL
+  
+  index        <- apply(fitted.tree10, byRows, which.max)    # location
+  class.tree10 <- classes[index]
+  scale.tree10 <- apply(fitted.tree10, byRows, sum) # for normalization 
+  p.tree10     <- apply(fitted.tree10, byRows, max)/ scale.tree10  # normalize max value
+  risk.tree10  <- 1-p.tree10          # Bayes Risk
+  
+  (hits.tree10 <- table(class.tree10, digits, dnn=c("classif","actual") ) )
+  (pc.tree10   <- sum(diag(hits.tree10))/sum(hits.tree10)) # percent correct
+  
+  # 1 tree: multinomial
+  td$fDigits    <- as.factor(digits)  # triggers classification
+  
+  m             <- ctree(fDigits~., data=td)
+
+  fitted.tree1  <- predict(m)
+  
+  p.tree1       <- predict(m,type="prob")  # individual class probabilities 
+  index         <- apply(p.tree1, byRows, which.max)
+  mbr.tree1     <- classes[index]
+  risk.tree1    <- 1-apply(p.tree1, byRows, max)
+  
+  (hits.tree1   <- table(fitted.tree1, digits, dnn=c("classif","actual") ) )
+  (pc.tree1     <- sum(diag(hits.tree1))/sum(hits.tree1)) # percent correct
+  
+  br.logit.actualclass <- 1-(sum(apply(hits.logit,1,max)[1])/sum(apply(hits.logit, 2, sum)[1]))
+  br.tree10.actualclass <- 1-(sum(apply(hits.tree10,1,max)[1])/sum(apply(hits.tree10, 2, sum)[1]))
+  br.tree1.actualclass <- 1-(sum(apply(hits.tree1,1,max)[1])/sum(apply(hits.tree1, 2, sum)[1]))
+  
+  br.logit <- append(br.logit,br.logit.actualclass)
+  br.tree10 <- append(br.tree10,br.tree10.actualclass)
+  br.tree1 <- append(br.tree1,br.tree1.actualclass)
+  
+}
+
+  plot(n, br.logit, type="o", col="blue", pch="o", lty=1 )
+  lines(n, br.tree10, col="red")
+  lines(n, br.tree1, col="green")
+```
+
+
+```{r}
+n <- c(  100)
+
+for (j in n){
+  set.seed(seed)
+  
+  t1 <- rep(classes, j)
+  t2 <- c(1,1,1,0,1,1,1,
+          0,0,1,0,0,1,0,
+          1,0,1,1,1,0,1,
+          1,0,1,1,0,1,1,
+          0,1,1,1,0,1,0,
+          1,1,0,1,0,1,1,
+          0,1,0,1,1,1,1,
+          1,0,1,0,0,1,0,
+          1,1,1,1,1,1,1,
+          1,1,1,1,0,1,0)
+  t3 <- rep(t2, j)
+  t4 <- rbinom(length(t3), 1, 1-p)
+  t5 <- ifelse(t4 == 1, 1-t3, t3)
+  t5                  <- matrix(data=t5, 
+                                nrow=length(classes)*j, 
+                                ncol=cols, 
+                                byrow=T)
+  dim(t1)             <- c(length(t1), 1)
+  t6                  <- cbind(t1, t5)
+  simDigits           <- as.data.frame(t6)
+  
+  colnames(simDigits) <- c("digit", "s1", "s2", "s3", "s4", "s5", "s6", "s7")
+  
+  simDigits <- as.data.table(simDigits)
+  
+  # 10x logit
+  td <- simDigits[1:(j*10)]
+  
+  fitted.logit  <- matrix(rep(NA,nrow(td)*numDigits), nrow=nrow(td) )
+  digits        <- td$digit
+  td$digit      <- NULL
+  for ( i in 1:length(classes) ) {
+    d                 <- classes[i]
+    td$y              <- 0         # initialize
+    td$y[digits == d] <- 1         # indicator for -each- digit
+    m                 <- glm(y ~ ., data=td, family=binomial())
+    fitted.logit[,i]  <- m$fitted.values
+  }
+  
+  index       <- apply(fitted.logit, byRows, which.max)   # location
+  class.logit <- classes[index]
+  scale.logit <- apply(fitted.logit, byRows, sum)    # scale for normalization
+  p.logit     <- apply(fitted.logit, byRows, max)/ scale.logit  # only normalize max
+  risk.logit  <- 1-p.logit          # Bayes Risk
+  
+  (hits.logit <- table(class.logit, digits, dnn=c("classif","actual") ) )
+  (pc.logit   <- sum(diag(hits.logit))/sum(hits.logit)) # percent correct
+
+  
+  # 10x tree: each v. other
+  fitted.tree10 <- matrix(rep(NA,nrow(td)*numDigits), 
+                          nrow=nrow(td) )
+  
+  for ( i in 1:length(classes) ) {
+    d                  <- classes[i]
+    td$y               <- 0         # initialize
+    td$y[digits == d]  <- 1         # indicator for -each- digit
+    m                  <- ctree(y ~ ., data=td)
+    fitted.tree10[,i]  <- predict(m)
+  }
+  
+  td$y         <- NULL
+  
+  index        <- apply(fitted.tree10, byRows, which.max)    # location
+  class.tree10 <- classes[index]
+  scale.tree10 <- apply(fitted.tree10, byRows, sum) # for normalization 
+  p.tree10     <- apply(fitted.tree10, byRows, max)/ scale.tree10  # normalize max value
+  risk.tree10  <- 1-p.tree10          # Bayes Risk
+  
+  (hits.tree10 <- table(class.tree10, digits, dnn=c("classif","actual") ) )
+  (pc.tree10   <- sum(diag(hits.tree10))/sum(hits.tree10)) # percent correct
+  
+  # 1 tree: multinomial
+  td$fDigits    <- as.factor(digits)  # triggers classification
+  
+  m             <- ctree(fDigits~., data=td)
+
+  fitted.tree1  <- predict(m)
+  
+  p.tree1       <- predict(m,type="prob")  # individual class probabilities 
+  index         <- apply(p.tree1, byRows, which.max)
+  mbr.tree1     <- classes[index]
+  risk.tree1    <- 1-apply(p.tree1, byRows, max)
+  
+  (hits.tree1   <- table(fitted.tree1, digits, dnn=c("classif","actual") ) )
+  (pc.tree1     <- sum(diag(hits.tree1))/sum(hits.tree1)) # percent correct
+  
+  br.logit.actualclass <- 1-(sum(apply(hits.logit,1,max)[1])/sum(apply(hits.logit, 2, sum)[1]))
+  br.tree10.actualclass <- 1-(sum(apply(hits.tree10,1,max)[1])/sum(apply(hits.tree10, 2, sum)[1]))
+  br.tree1.actualclass <- 1-(sum(apply(hits.tree1,1,max)[1])/sum(apply(hits.tree1, 2, sum)[1]))
+  
+}
+
+  print(br.logit.actualclass)
+  print(br.tree10.actualclass)
+  print(br.tree1.actualclass)
+```
+
+# Question-7
+Based on Percent Correct using the multiple Trees approach, what is the optimal sample size stopping point? (Repetitions per digit)
+```{r}
+
+```
+
+# Question-8
+Based on Percent Correct using the Multinomial Tree approach, what is the optimal sample size stopping point? (Repetitions per digit)
+```{r}
+
+```
+
+# Question-9
+Based on Percent Correct across all classification approaches, which is the most accurate classification approach for sample size n=5000?
+```{r}
+classification <- function(n){
+
+for (j in n){
+  set.seed(seed)
+  
+  t1 <- rep(classes, j)
+  t2 <- c(1,1,1,0,1,1,1,
+          0,0,1,0,0,1,0,
+          1,0,1,1,1,0,1,
+          1,0,1,1,0,1,1,
+          0,1,1,1,0,1,0,
+          1,1,0,1,0,1,1,
+          0,1,0,1,1,1,1,
+          1,0,1,0,0,1,0,
+          1,1,1,1,1,1,1,
+          1,1,1,1,0,1,0)
+  t3 <- rep(t2, j)
+  t4 <- rbinom(length(t3), 1, 1-p)
+  t5 <- ifelse(t4 == 1, 1-t3, t3)
+  t5                  <- matrix(data=t5, 
+                                nrow=length(classes)*j, 
+                                ncol=cols, 
+                                byrow=T)
+  dim(t1)             <- c(length(t1), 1)
+  t6                  <- cbind(t1, t5)
+  simDigits           <- as.data.frame(t6)
+  
+  colnames(simDigits) <- c("digit", "s1", "s2", "s3", "s4", "s5", "s6", "s7")
+  
+  simDigits <- as.data.table(simDigits)
+  
+  # 10x logit
+  td <- simDigits[1:(j*10)]
+  
+  fitted.logit  <- matrix(rep(NA,nrow(td)*numDigits), nrow=nrow(td) )
+  digits        <- td$digit
+  td$digit      <- NULL
+  for ( i in 1:length(classes) ) {
+    d                 <- classes[i]
+    td$y              <- 0         # initialize
+    td$y[digits == d] <- 1         # indicator for -each- digit
+    m                 <- glm(y ~ ., data=td, family=binomial())
+    fitted.logit[,i]  <- m$fitted.values
+  }
+  
+  index       <- apply(fitted.logit, byRows, which.max)   # location
+  class.logit <- classes[index]
+  scale.logit <- apply(fitted.logit, byRows, sum)    # scale for normalization
+  p.logit     <- apply(fitted.logit, byRows, max)/ scale.logit  # only normalize max
+  risk.logit  <- 1-p.logit          # Bayes Risk
+  
+  (hits.logit <- table(class.logit, digits, dnn=c("classif","actual") ) )
+  (pc.logit   <- sum(diag(hits.logit))/sum(hits.logit)) # percent correct
+  
+  # 10x tree: each v. other
+  fitted.tree10 <- matrix(rep(NA,nrow(td)*numDigits), 
+                          nrow=nrow(td) )
+  
+  for ( i in 1:length(classes) ) {
+    d                  <- classes[i]
+    td$y               <- 0         # initialize
+    td$y[digits == d]  <- 1         # indicator for -each- digit
+    m                  <- ctree(y ~ ., data=td)
+    fitted.tree10[,i]  <- predict(m)
+  }
+  
+  td$y         <- NULL
+  
+  index        <- apply(fitted.tree10, byRows, which.max)    # location
+  class.tree10 <- classes[index]
+  scale.tree10 <- apply(fitted.tree10, byRows, sum) # for normalization 
+  p.tree10     <- apply(fitted.tree10, byRows, max)/ scale.tree10  # normalize max value
+  risk.tree10  <- 1-p.tree10          # Bayes Risk
+  
+  (hits.tree10 <- table(class.tree10, digits, dnn=c("classif","actual") ) )
+  (pc.tree10   <- sum(diag(hits.tree10))/sum(hits.tree10)) # percent correct
+  
+  # 1 tree: multinomial
+  td$fDigits    <- as.factor(digits)  # triggers classification
+  
+  m             <- ctree(fDigits~., data=td)
+
+  fitted.tree1  <- predict(m)
+  
+  p.tree1       <- predict(m,type="prob")  # individual class probabilities 
+  index         <- apply(p.tree1, byRows, which.max)
+  mbr.tree1     <- classes[index]
+  risk.tree1    <- 1-apply(p.tree1, byRows, max)
+  
+  (hits.tree1   <- table(fitted.tree1, digits, dnn=c("classif","actual") ) )
+  (pc.tree1     <- sum(diag(hits.tree1))/sum(hits.tree1)) # percent correct
+
+}
+  
+  return( list(size        = n,
+               pc.logit    = pc.logit,
+               pc.tree10   = pc.tree10,
+               pc.tree1    = pc.tree1)
+  )
+}
+classification(5000)
+```
+
+# Question-10
+What is the estimated lower bound for the Bayes risk with an outcome (classification) value of "7" across all the different sample sizes and model approaches? (3 decimal places)
+```{r}
+n <- c( 25, 50, 100, 250, 500, 1000, 2500, 5000 )
+br.logit <- NULL
+br.tree10 <- NULL
+br.tree1 <- NULL
+
+for (j in n){
+  set.seed(seed)
+  
+  t1 <- rep(classes, j)
+  t2 <- c(1,1,1,0,1,1,1,
+          0,0,1,0,0,1,0,
+          1,0,1,1,1,0,1,
+          1,0,1,1,0,1,1,
+          0,1,1,1,0,1,0,
+          1,1,0,1,0,1,1,
+          0,1,0,1,1,1,1,
+          1,0,1,0,0,1,0,
+          1,1,1,1,1,1,1,
+          1,1,1,1,0,1,0)
+  t3 <- rep(t2, j)
+  t4 <- rbinom(length(t3), 1, 1-p)
+  t5 <- ifelse(t4 == 1, 1-t3, t3)
+  t5                  <- matrix(data=t5, 
+                                nrow=length(classes)*j, 
+                                ncol=cols, 
+                                byrow=T)
+  dim(t1)             <- c(length(t1), 1)
+  t6                  <- cbind(t1, t5)
+  simDigits           <- as.data.frame(t6)
+  
+  colnames(simDigits) <- c("digit", "s1", "s2", "s3", "s4", "s5", "s6", "s7")
+  
+  simDigits <- as.data.table(simDigits)
+  
+  # 10x logit
+  td <- simDigits[1:(j*10)]
+  
+  fitted.logit  <- matrix(rep(NA,nrow(td)*numDigits), nrow=nrow(td) )
+  digits        <- td$digit
+  td$digit      <- NULL
+  for ( i in 1:length(classes) ) {
+    d                 <- classes[i]
+    td$y              <- 0         # initialize
+    td$y[digits == d] <- 1         # indicator for -each- digit
+    m                 <- glm(y ~ ., data=td, family=binomial())
+    fitted.logit[,i]  <- m$fitted.values
+  }
+  
+  index       <- apply(fitted.logit, byRows, which.max)   # location
+  class.logit <- classes[index]
+  scale.logit <- apply(fitted.logit, byRows, sum)    # scale for normalization
+  p.logit     <- apply(fitted.logit, byRows, max)/ scale.logit  # only normalize max
+  risk.logit  <- 1-p.logit          # Bayes Risk
+  
+  (hits.logit <- table(class.logit, digits, dnn=c("classif","actual") ) )
+  (pc.logit   <- sum(diag(hits.logit))/sum(hits.logit)) # percent correct
+
+  
+  # 10x tree: each v. other
+  fitted.tree10 <- matrix(rep(NA,nrow(td)*numDigits), 
+                          nrow=nrow(td) )
+  
+  for ( i in 1:length(classes) ) {
+    d                  <- classes[i]
+    td$y               <- 0         # initialize
+    td$y[digits == d]  <- 1         # indicator for -each- digit
+    m                  <- ctree(y ~ ., data=td)
+    fitted.tree10[,i]  <- predict(m)
+  }
+  
+  td$y         <- NULL
+  
+  index        <- apply(fitted.tree10, byRows, which.max)    # location
+  class.tree10 <- classes[index]
+  scale.tree10 <- apply(fitted.tree10, byRows, sum) # for normalization 
+  p.tree10     <- apply(fitted.tree10, byRows, max)/ scale.tree10  # normalize max value
+  risk.tree10  <- 1-p.tree10          # Bayes Risk
+  
+  (hits.tree10 <- table(class.tree10, digits, dnn=c("classif","actual") ) )
+  (pc.tree10   <- sum(diag(hits.tree10))/sum(hits.tree10)) # percent correct
+  
+  # 1 tree: multinomial
+  td$fDigits    <- as.factor(digits)  # triggers classification
+  
+  m             <- ctree(fDigits~., data=td)
+
+  fitted.tree1  <- predict(m)
+  
+  p.tree1       <- predict(m,type="prob")  # individual class probabilities 
+  index         <- apply(p.tree1, byRows, which.max)
+  mbr.tree1     <- classes[index]
+  risk.tree1    <- 1-apply(p.tree1, byRows, max)
+  
+  (hits.tree1   <- table(fitted.tree1, digits, dnn=c("classif","actual") ) )
+  (pc.tree1     <- sum(diag(hits.tree1))/sum(hits.tree1)) # percent correct
+
+  br.logit.classif <- 1-(sum(apply(hits.logit,1,max)[8])/sum(apply(hits.logit, 1, sum)[8]))
+  br.tree10.classif <- 1-(sum(apply(hits.tree10,1,max)[8])/sum(apply(hits.tree10, 1, sum)[8]))
+  br.tree1.classif <- 1-(sum(apply(hits.tree1,1,max)[8])/sum(apply(hits.tree1, 1, sum)[8]))
+  
+  br.logit <- append(br.logit,br.logit.classif)
+  br.tree10 <- append(br.tree10,br.tree10.classif)
+  br.tree1 <- append(br.tree1,br.tree1.classif)
+
+}
+
+  plot(n, br.logit, type="o", col="blue", pch="o", lty=1 )
+  lines(n, br.tree10, col="red")
+  lines(n, br.tree1, col="green")
+```
+
+```{r}
+n <- c(100)
+
+for (j in n){
+  set.seed(seed)
+  
+  t1 <- rep(classes, j)
+  t2 <- c(1,1,1,0,1,1,1,
+          0,0,1,0,0,1,0,
+          1,0,1,1,1,0,1,
+          1,0,1,1,0,1,1,
+          0,1,1,1,0,1,0,
+          1,1,0,1,0,1,1,
+          0,1,0,1,1,1,1,
+          1,0,1,0,0,1,0,
+          1,1,1,1,1,1,1,
+          1,1,1,1,0,1,0)
+  t3 <- rep(t2, j)
+  t4 <- rbinom(length(t3), 1, 1-p)
+  t5 <- ifelse(t4 == 1, 1-t3, t3)
+  t5                  <- matrix(data=t5, 
+                                nrow=length(classes)*j, 
+                                ncol=cols, 
+                                byrow=T)
+  dim(t1)             <- c(length(t1), 1)
+  t6                  <- cbind(t1, t5)
+  simDigits           <- as.data.frame(t6)
+  
+  colnames(simDigits) <- c("digit", "s1", "s2", "s3", "s4", "s5", "s6", "s7")
+  
+  simDigits <- as.data.table(simDigits)
+  
+  # 10x logit
+  td <- simDigits[1:(j*10)]
+  
+  fitted.logit  <- matrix(rep(NA,nrow(td)*numDigits), nrow=nrow(td) )
+  digits        <- td$digit
+  td$digit      <- NULL
+  for ( i in 1:length(classes) ) {
+    d                 <- classes[i]
+    td$y              <- 0         # initialize
+    td$y[digits == d] <- 1         # indicator for -each- digit
+    m                 <- glm(y ~ ., data=td, family=binomial())
+    fitted.logit[,i]  <- m$fitted.values
+  }
+  
+  index       <- apply(fitted.logit, byRows, which.max)   # location
+  class.logit <- classes[index]
+  scale.logit <- apply(fitted.logit, byRows, sum)    # scale for normalization
+  p.logit     <- apply(fitted.logit, byRows, max)/ scale.logit  # only normalize max
+  risk.logit  <- 1-p.logit          # Bayes Risk
+  
+  (hits.logit <- table(class.logit, digits, dnn=c("classif","actual") ) )
+  (pc.logit   <- sum(diag(hits.logit))/sum(hits.logit)) # percent correct
+
+  
+  # 10x tree: each v. other
+  fitted.tree10 <- matrix(rep(NA,nrow(td)*numDigits), 
+                          nrow=nrow(td) )
+  
+  for ( i in 1:length(classes) ) {
+    d                  <- classes[i]
+    td$y               <- 0         # initialize
+    td$y[digits == d]  <- 1         # indicator for -each- digit
+    m                  <- ctree(y ~ ., data=td)
+    fitted.tree10[,i]  <- predict(m)
+  }
+  
+  td$y         <- NULL
+  
+  index        <- apply(fitted.tree10, byRows, which.max)    # location
+  class.tree10 <- classes[index]
+  scale.tree10 <- apply(fitted.tree10, byRows, sum) # for normalization 
+  p.tree10     <- apply(fitted.tree10, byRows, max)/ scale.tree10  # normalize max value
+  risk.tree10  <- 1-p.tree10          # Bayes Risk
+  
+  (hits.tree10 <- table(class.tree10, digits, dnn=c("classif","actual") ) )
+  (pc.tree10   <- sum(diag(hits.tree10))/sum(hits.tree10)) # percent correct
+  
+  # 1 tree: multinomial
+  td$fDigits    <- as.factor(digits)  # triggers classification
+  
+  m             <- ctree(fDigits~., data=td)
+
+  fitted.tree1  <- predict(m)
+  
+  p.tree1       <- predict(m,type="prob")  # individual class probabilities 
+  index         <- apply(p.tree1, byRows, which.max)
+  mbr.tree1     <- classes[index]
+  risk.tree1    <- 1-apply(p.tree1, byRows, max)
+  
+  (hits.tree1   <- table(fitted.tree1, digits, dnn=c("classif","actual") ) )
+  (pc.tree1     <- sum(diag(hits.tree1))/sum(hits.tree1)) # percent correct
+  
+  br.logit.classif <- 1-(sum(apply(hits.logit,1,max)[8])/sum(apply(hits.logit, 1, sum)[8]))
+  br.tree10.classif <- 1-(sum(apply(hits.tree10,1,max)[8])/sum(apply(hits.tree10, 1, sum)[8]))
+  br.tree1.classif <- 1-(sum(apply(hits.tree1,1,max)[8])/sum(apply(hits.tree1, 1, sum)[8]))
+  
+}
+
+  print(br.logit.classif)
+  print(br.tree10.classif)
+  print(br.tree1.classif)
+```
+
+
+```{r}
+source("validate.txt", echo=T)
+```
+
